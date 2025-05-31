@@ -1,0 +1,3 @@
+```
+worker: python art_bot.py
+```
