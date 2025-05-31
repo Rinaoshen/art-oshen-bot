@@ -180,15 +180,15 @@ class ArtOceanBot:
         )
 
 def main():
-    # Токен бота (получить у @BotFather)
-    BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+    # 8035302373:AAESvCdIqKUaZkIb8Zsw9izWPV7mcHwCiFQ
     
-    if BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+    
+    if BOT_TOKEN == '8035302373:AAESvCdIqKUaZkIb8Zsw9izWPV7mcHwCiFQ':
         logger.error("Please set TELEGRAM_BOT_TOKEN environment variable")
         return
     
     # Создаем бота
-    art_bot = ArtOceanBot(BOT_TOKEN)
+    art_bot = ArtOceanBot(8035302373:AAESvCdIqKUaZkIb8Zsw9izWPV7mcHwCiFQ)
     
     # Запускаем бота
     logger.info("🚀🌊 Starting Art Ocean Bot...")
