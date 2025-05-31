@@ -7,16 +7,3 @@ lxml==4.9.3
 requests==2.31.0
 python-dotenv==1.0.0
 ```
-
-4. **Commit message:** `Add requirements.txt`
-5. **Нажмите "Commit new file"**
-
-## Затем создайте: `runtime.txt`
-
-1. **"Add file" → "Create new file"**
-2. **Имя файла:** `runtime.txt`
-3. **Содержимое:**
-
-```
-python-3.11.0
-```
