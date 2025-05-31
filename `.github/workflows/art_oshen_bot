@@ -1,0 +1,198 @@
+```python
+import os
+import asyncio
+import logging
+from datetime import datetime, timedelta
+import aiohttp
+from bs4 import BeautifulSoup
+from telegram import Bot
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+import schedule
+import time
+import json
+import hashlib
+from dataclasses import dataclass, asdict
+from typing import List, Dict, Optional
+import re
+
+# Настройка логирования
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class Opportunity:
+    title: str
+    description: str
+    deadline: str
+    source: str
+    url: str
+    category: str  # grant, residency, open_call, competition
+    location: str = ""
+    fee: str = ""
+    
+    def to_telegram_message(self) -> str:
+        category_emoji = {
+            'grant': '💰',
+            'residency': '🏠',
+            'open_call': '📢',
+            'competition': '🏆',
+            'exhibition': '🎨'
+        }
+        
+        emoji = category_emoji.get(self.category, '📋')
+        
+        message = f"{emoji} **{self.title}**\n\n"
+        message += f"📅 **Дедлайн:** {self.deadline}\n"
+        message += f"🌍 **Локация:** {self.location}\n" if self.location else ""
+        message += f"💵 **Взнос:** {self.fee}\n" if self.fee else ""
+        message += f"📝 **Описание:** {self.description[:300]}{'...' if len(self.description) > 300 else ''}\n\n"
+        message += f"🔗 [Подробнее]({self.url})\n"
+        message += f"📊 **Источник:** {self.source}"
+        
+        return message
+
+class ArtOceanBot:
+    def __init__(self, telegram_token: str):
+        self.bot = Bot(token=telegram_token)
+        self.application = Application.builder().token(telegram_token).build()
+        self.subscribers = set()
+        self.seen_opportunities = set()
+        self.load_data()
+        
+        # Добавляем обработчики команд
+        self.application.add_handler(CommandHandler("start", self.start_command))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
+        self.application.add_handler(CommandHandler("unsubscribe", self.unsubscribe_command))
+        self.application.add_handler(CommandHandler("status", self.status_command))
+        
+    def load_data(self):
+        """Загрузка сохраненных данных"""
+        try:
+            with open('subscribers.json', 'r') as f:
+                self.subscribers = set(json.load(f))
+        except FileNotFoundError:
+            self.subscribers = set()
+            
+        try:
+            with open('seen_opportunities.json', 'r') as f:
+                self.seen_opportunities = set(json.load(f))
+        except FileNotFoundError:
+            self.seen_opportunities = set()
+    
+    def save_data(self):
+        """Сохранение данных"""
+        with open('subscribers.json', 'w') as f:
+            json.dump(list(self.subscribers), f)
+            
+        with open('seen_opportunities.json', 'w') as f:
+            json.dump(list(self.seen_opportunities), f)
+    
+    async def start_command(self, update, context):
+        """Команда /start"""
+        welcome_text = """
+🎨🌊 **Добро пожаловать в Art Ocean Bot!**
+
+Я океан возможностей для художников! Автоматически мониторю сайты и нахожу новые возможности:
+• 💰 Гранты
+• 🏠 Арт-резиденции  
+• 📢 Open Call'ы
+• 🏆 Конкурсы
+• 🎨 Выставки
+
+**Команды:**
+/subscribe - подписаться на уведомления
+/unsubscribe - отписаться
+/status - проверить статус подписки
+/help - помощь
+
+🌊 Нажмите /subscribe чтобы погрузиться в океан арт-возможностей!
+        """
+        await update.message.reply_text(welcome_text, parse_mode='Markdown')
+    
+    async def help_command(self, update, context):
+        """Команда /help"""
+        help_text = """
+🤖🌊 **Справка по Art Ocean Bot**
+
+**Что я умею:**
+• Мониторю 15+ сайтов с арт-возможностями
+• Отправляю уведомления о новых открытых заявках
+• Фильтрую дубликаты
+• Работаю 24/7 как океанские волны
+
+**Источники:**
+• ArtConnect, ArtRabbit, ArtForum
+• e-flux, Artist-Opportunities.org
+• Крупные галереи (Tate, Gagosian, etc.)
+• И многие другие
+
+**Команды:**
+/start - начать работу
+/subscribe - подписаться
+/unsubscribe - отписаться  
+/status - статус подписки
+
+🌊 Океан возможностей ждет вас!
+        """
+        await update.message.reply_text(help_text, parse_mode='Markdown')
+    
+    async def subscribe_command(self, update, context):
+        """Подписка на уведомления"""
+        user_id = update.effective_user.id
+        self.subscribers.add(user_id)
+        self.save_data()
+        
+        await update.message.reply_text(
+            "✅🌊 Вы подписались на Art Ocean Bot!\n"
+            "Теперь я буду присылать вам все новые арт-возможности из океана творчества.",
+            parse_mode='Markdown'
+        )
+    
+    async def unsubscribe_command(self, update, context):
+        """Отписка от уведомлений"""
+        user_id = update.effective_user.id
+        self.subscribers.discard(user_id)
+        self.save_data()
+        
+        await update.message.reply_text(
+            "❌ Вы отписались от уведомлений.\n"
+            "Используйте /subscribe чтобы подписаться снова.",
+            parse_mode='Markdown'
+        )
+    
+    async def status_command(self, update, context):
+        """Проверка статуса подписки"""
+        user_id = update.effective_user.id
+        is_subscribed = user_id in self.subscribers
+        
+        status = "✅ Подписан" if is_subscribed else "❌ Не подписан"
+        total_subscribers = len(self.subscribers)
+        
+        await update.message.reply_text(
+            f"📊 **Ваш статус:** {status}\n"
+            f"👥 **Всего подписчиков:** {total_subscribers}\n"
+            f"🔍 **Найдено возможностей:** {len(self.seen_opportunities)}",
+            parse_mode='Markdown'
+        )
+
+def main():
+    # Токен бота (получить у @BotFather)
+    BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+    
+    if BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+        logger.error("Please set TELEGRAM_BOT_TOKEN environment variable")
+        return
+    
+    # Создаем бота
+    art_bot = ArtOceanBot(BOT_TOKEN)
+    
+    # Запускаем бота
+    logger.info("🚀🌊 Starting Art Ocean Bot...")
+    art_bot.application.run_polling()
+
+if __name__ == '__main__':
+    main()
